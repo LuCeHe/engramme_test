@@ -33,9 +33,9 @@ Important:
     scores; those require human review or a separate validated judge.
 
 Corpus Q&A (default on):
-    10K email slice (corpus_sample_10000.jsonl), 1K synthetic count
-    questions with algorithmic ground truth (synthetic_qa_1000.jsonl),
-    dense retrieval (MiniLM) + Codex gpt-5.6-luna aggregate answers.
+    10K email slice, 1K synthetic questions (ground truth), Codex on
+    the first 10 questions by default (--corpus-qa-limit), dense retrieval
+    with paraphrase-MiniLM-L3-v2 (--dense-embed-model).
     Per-email header eval is off by default; pass --email-eval to enable it.
     Use --skip-corpus-qa to run per-email eval only.
 """
@@ -62,11 +62,20 @@ from pathlib import Path
 from typing import Any
 
 from tools.corpus_qa import (
+    DEFAULT_CORPUS_QA_EVAL_LIMIT,
     DEFAULT_CORPUS_SAMPLE_N,
     DEFAULT_QA_COUNT,
     DEFAULT_QA_SEED,
+    DEFAULT_RETRIEVAL_BENCHMARK_N,
     ensure_synthetic_qa_dataset,
 )
+from tools.colbert_retrieval import DEFAULT_COLBERT_MODEL
+from tools.retrieval_cascade import (
+    DEFAULT_SPLADE_MODEL,
+    DEFAULT_SPLADE_MODEL_LITE,
+    RETRIEVAL_METHODS,
+)
+from tools.dense_retrieval import DEFAULT_EMBED_MODEL, DEFAULT_EMBED_MODEL_QUALITY
 from tools.corpus_qa_eval import run_corpus_qa_evaluation
 from tools.codex_corpus_qa import CORPUS_QA_MODEL
 from tools.download_tools import find_dataset_csv, resolve_dataset_csv
@@ -702,14 +711,63 @@ def main() -> int:
     parser.add_argument(
         "--corpus-qa-limit",
         type=int,
-        default=None,
-        help="Optional cap on corpus Q&A items (debug/smoke tests).",
+        default=DEFAULT_CORPUS_QA_EVAL_LIMIT,
+        help=(
+            "Max corpus Q&A items to run through Codex "
+            f"(default {DEFAULT_CORPUS_QA_EVAL_LIMIT}; "
+            "full bank still generated for retrieval eval)."
+        ),
+    )
+    parser.add_argument(
+        "--dense-embed-model",
+        default=os.getenv("ENGRAMME_DENSE_MODEL", DEFAULT_EMBED_MODEL),
+        help=(
+            "Sentence-transformers model for dense retrieval "
+            f"(default {DEFAULT_EMBED_MODEL}; "
+            f"try {DEFAULT_EMBED_MODEL_QUALITY} for quality)."
+        ),
+    )
+    parser.add_argument(
+        "--splade-model",
+        default=os.getenv("ENGRAMME_SPLADE_MODEL", DEFAULT_SPLADE_MODEL),
+        help=(
+            "SparseEncoder SPLADE model "
+            f"(default {DEFAULT_SPLADE_MODEL}; lite: {DEFAULT_SPLADE_MODEL_LITE})."
+        ),
+    )
+    parser.add_argument(
+        "--colbert-model",
+        default=os.getenv("ENGRAMME_COLBERT_MODEL", DEFAULT_COLBERT_MODEL),
+        help=f"ColBERT model via RAGatouille (default {DEFAULT_COLBERT_MODEL}).",
+    )
+    parser.add_argument(
+        "--rebuild-colbert",
+        action="store_true",
+        help="Force rebuild of the ColBERT PLAID index.",
     )
     parser.add_argument(
         "--corpus-retrieval-k",
         type=int,
         default=50,
-        help="Top-k dense retrieval for corpus Q&A evidence.",
+        help="Top-k retrieval for corpus Q&A evidence.",
+    )
+    parser.add_argument(
+        "--retrieval-method",
+        choices=sorted(RETRIEVAL_METHODS),
+        default="cascade",
+        help=(
+            "Retrieval for Codex evidence: dense, bm25, bm25_splade, or "
+            "cascade (BM25→SPLADE→dense→cross-encoder)."
+        ),
+    )
+    parser.add_argument(
+        "--retrieval-benchmark-n",
+        type=int,
+        default=DEFAULT_RETRIEVAL_BENCHMARK_N,
+        help=(
+            "Compare retrieval methods on N questions (latency + recall@k); "
+            "0 disables."
+        ),
     )
     parser.add_argument(
         "--regenerate-corpus-qa",
@@ -801,6 +859,12 @@ def main() -> int:
                 retrieval_k=args.corpus_retrieval_k,
                 limit=args.corpus_qa_limit,
                 rebuild_dense=args.regenerate_corpus_qa,
+                embed_model=args.dense_embed_model,
+                splade_model=args.splade_model,
+                colbert_model=args.colbert_model,
+                rebuild_colbert=args.rebuild_colbert,
+                retrieval_method=args.retrieval_method,
+                retrieval_benchmark_n=args.retrieval_benchmark_n,
             )
             corpus_failed = corpus_metrics.get("items_failed", 0)
             corpus_exit_code = 0 if corpus_failed == 0 else 1

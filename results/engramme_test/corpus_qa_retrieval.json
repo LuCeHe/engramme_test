@@ -1,0 +1,5 @@
+{
+  "items_with_retrieval": 10,
+  "mean_recall_at_k": 0.3009069040708015,
+  "median_recall_at_k": 0.0023148148148148147
+}

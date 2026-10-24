@@ -10,7 +10,9 @@ import numpy as np
 
 from tools.corpus_qa import CorpusRecord, load_corpus_index, sha256_file
 
-DEFAULT_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# L3-v2: ~2× faster encode, smaller than all-MiniLM-L6-v2; L6 is stronger retrieval.
+DEFAULT_EMBED_MODEL = "sentence-transformers/paraphrase-MiniLM-L3-v2"
+DEFAULT_EMBED_MODEL_QUALITY = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_TOP_K = 50
 
 
@@ -22,7 +24,13 @@ def record_to_text(rec: CorpusRecord) -> str:
     return f"date {date} | from {senders} | to {recipients} | subject {subject}"
 
 
+_ENCODER_CACHE: dict[str, Any] = {}
+
+
 def _load_encoder(model_name: str):
+    if model_name in _ENCODER_CACHE:
+        return _ENCODER_CACHE[model_name]
+
     try:
         from sentence_transformers import SentenceTransformer
     except ImportError as exc:
@@ -31,7 +39,8 @@ def _load_encoder(model_name: str):
             "Install with: pip install sentence-transformers"
         ) from exc
 
-    return SentenceTransformer(model_name)
+    _ENCODER_CACHE[model_name] = SentenceTransformer(model_name)
+    return _ENCODER_CACHE[model_name]
 
 
 def build_dense_index(
@@ -99,23 +108,46 @@ def build_dense_index(
     }
 
 
-def retrieve_top_k(
+def retrieve_top_k_timed(
     question: str,
     dense_index: dict[str, Any],
     k: int = DEFAULT_TOP_K,
-) -> list[str]:
+) -> tuple[list[str], dict[str, float]]:
+    import time
+
+    encode_start = time.perf_counter()
     model = _load_encoder(dense_index["model_name"])
     query = model.encode(
         [question],
         normalize_embeddings=True,
     )[0]
+    encode_ms = (time.perf_counter() - encode_start) * 1000
+
+    score_start = time.perf_counter()
     vectors: np.ndarray = dense_index["vectors"]
     scores = vectors @ query
     k = min(k, len(scores))
     top = np.argpartition(-scores, k - 1)[:k]
     top = top[np.argsort(-scores[top])]
+    score_ms = (time.perf_counter() - score_start) * 1000
+
     record_ids: list[str] = dense_index["record_ids"]
-    return [record_ids[i] for i in top.tolist()]
+    ids = [record_ids[i] for i in top.tolist()]
+    total_ms = encode_ms + score_ms
+    return ids, {
+        "dense_encode_ms": round(encode_ms, 4),
+        "dense_score_ms": round(score_ms, 4),
+        "total_ms": round(total_ms, 4),
+    }
+
+
+def retrieve_top_k(
+    question: str,
+    dense_index: dict[str, Any],
+    k: int = DEFAULT_TOP_K,
+) -> list[str]:
+    ids, _ = retrieve_top_k_timed(question, dense_index, k)
+    return ids
 
 
 def recall_at_k(retrieved: list[str], gold: set[str]) -> float | None:

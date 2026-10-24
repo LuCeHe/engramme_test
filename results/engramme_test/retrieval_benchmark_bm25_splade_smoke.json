@@ -1,0 +1,23 @@
+{
+  "k": 50,
+  "questions": 3,
+  "methods": {
+    "bm25_splade": {
+      "mean_recall_at_k": 0.33968368305191204,
+      "latency_ms": {
+        "mean_total": 191577.81826666906,
+        "p50_total": 174980.6671000042,
+        "p95_total": 271287.8437000036,
+        "mean_by_stage": {
+          "bm25_ms": 182.37356666698665,
+          "splade_ms": 191395.44470000206,
+          "total_ms": 191577.81826666906
+        }
+      }
+    }
+  },
+  "created_at_utc": "2026-10-24T04:23:10.741891+00:00",
+  "dense_embed_model": "sentence-transformers/paraphrase-MiniLM-L3-v2",
+  "splade_model": "naver/splade-v3-distilbert",
+  "colbert_model": "colbert-ir/colbertv2.0"
+}

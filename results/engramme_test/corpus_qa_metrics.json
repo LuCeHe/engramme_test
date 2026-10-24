@@ -1,0 +1,69 @@
+{
+  "created_at_utc": "2026-10-24T03:00:28.705596+00:00",
+  "items_requested": 10,
+  "items_ok": 10,
+  "items_failed": 0,
+  "count_exact_match": 3,
+  "items_scored": 10,
+  "items_skipped_large_gold_set": 0,
+  "count_accuracy": 0.3,
+  "template_accuracy": {
+    "after": {
+      "total": 1,
+      "correct": 0,
+      "accuracy": 0.0
+    },
+    "before": {
+      "total": 2,
+      "correct": 0,
+      "accuracy": 0.0
+    },
+    "received_by": {
+      "total": 1,
+      "correct": 0,
+      "accuracy": 0.0
+    },
+    "sent_by": {
+      "total": 2,
+      "correct": 2,
+      "accuracy": 1.0
+    },
+    "sent_by_and_after": {
+      "total": 1,
+      "correct": 0,
+      "accuracy": 0.0
+    },
+    "sent_by_and_before": {
+      "total": 1,
+      "correct": 1,
+      "accuracy": 1.0
+    },
+    "sent_by_and_received_by": {
+      "total": 1,
+      "correct": 0,
+      "accuracy": 0.0
+    },
+    "sent_by_or_received_by": {
+      "total": 1,
+      "correct": 0,
+      "accuracy": 0.0
+    }
+  },
+  "latency_seconds": {
+    "mean": 4.3866,
+    "median": 4.273
+  },
+  "note": "Codex QA uses oracle metadata retrieval (all relevant emails). Use relevant_record_ids for dense retrieval evaluation separately.",
+  "retrieval": {
+    "items_with_retrieval": 10,
+    "mean_recall_at_k": 0.3009069040708015,
+    "median_recall_at_k": 0.0023148148148148147
+  },
+  "count_accuracy_full_corpus": 0.3,
+  "count_accuracy_visible_in_top_k": 0.8,
+  "corpus_qa_model": "gpt-5.6-luna",
+  "retrieval_mode": "dense",
+  "dense_embed_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "questions_path": "C:\\Users\\Luca\\work\\data\\engramme_test\\synthetic_qa_1000.jsonl",
+  "index_path": "C:\\Users\\Luca\\work\\data\\engramme_test\\corpus_index_10000.jsonl"
+}
