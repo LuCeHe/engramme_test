@@ -1,0 +1,50 @@
+{
+  "created_at_utc": "2026-10-24T02:07:17.066895+00:00",
+  "items_requested": 5,
+  "items_valid": 5,
+  "items_failed": 0,
+  "valid_output_rate": 1.0,
+  "header_field_accuracy": {
+    "sender": {
+      "correct": 5,
+      "total": 5,
+      "accuracy": 1.0
+    },
+    "recipients": {
+      "correct": 5,
+      "total": 5,
+      "accuracy": 1.0
+    },
+    "date": {
+      "correct": 5,
+      "total": 5,
+      "accuracy": 1.0
+    },
+    "subject": {
+      "correct": 3,
+      "total": 3,
+      "accuracy": 1.0
+    }
+  },
+  "micro_header_accuracy": 1.0,
+  "header_fields_correct": 18,
+  "header_fields_scored": 18,
+  "latency_seconds": {
+    "mean": null,
+    "median": null
+  },
+  "token_usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
+    "items_with_prompt_token_counts": 0,
+    "items_with_completion_token_counts": 0,
+    "items_with_total_token_counts": 0
+  },
+  "quality_note": "Summary, purpose, and action-item quality are not included in automatic accuracy. Review the generated human_review.csv.",
+  "model": "gpt-5.6-luna",
+  "dataset": "wcukierski/enron-email-dataset",
+  "sample_size": 5,
+  "seed": 42,
+  "sample_sha256": "891063ff4ae4ca4c90799db27a845103b97d7e065e2c35eae06d6fc175810ef9"
+}

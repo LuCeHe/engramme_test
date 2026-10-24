@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 
 from openai_codex import Codex, Sandbox
 
 MODEL = "gpt-6-luna"
+DEFAULT_REASONING_EFFORT = "low"
 
 BASE_INSTRUCTIONS = """
 You are an evaluator analyzing email data.
@@ -89,6 +91,28 @@ def parse_json_response(response: str) -> dict[str, Any]:
     return parsed
 
 
+def _usage_from_turn(result: Any, elapsed_seconds: float) -> dict[str, Any]:
+    """Map Codex turn metadata into eval_enron usage fields."""
+    latency = elapsed_seconds
+    if getattr(result, "duration_ms", None) is not None:
+        latency = result.duration_ms / 1000
+
+    usage_info: dict[str, Any] = {
+        "latency_seconds": round(latency, 4),
+        "duration_ms": getattr(result, "duration_ms", None),
+    }
+
+    token_usage = getattr(result, "usage", None)
+    if token_usage is not None and getattr(token_usage, "total", None) is not None:
+        total = token_usage.total
+        usage_info["prompt_tokens"] = total.input_tokens
+        usage_info["completion_tokens"] = total.output_tokens
+        usage_info["total_tokens"] = total.total_tokens
+        usage_info["reasoning_output_tokens"] = total.reasoning_output_tokens
+
+    return usage_info
+
+
 def run_one(
     codex: Codex,
     record: dict[str, Any],
@@ -100,18 +124,22 @@ def run_one(
 
     thread = codex.thread_start(
         model=model_id,
+        config={"model_reasoning_effort": DEFAULT_REASONING_EFFORT},
         sandbox=Sandbox.read_only,
         base_instructions=BASE_INSTRUCTIONS,
         ephemeral=True,
     )
 
+    started = time.perf_counter()
     result = thread.run(build_prompt(email_text))
+    elapsed = time.perf_counter() - started
     raw_response = result.final_response
 
     output: dict[str, Any] = {
         "model": model_id,
         "thread_id": thread.id,
         "raw_response": raw_response,
+        "usage": _usage_from_turn(result, elapsed),
     }
 
     try:

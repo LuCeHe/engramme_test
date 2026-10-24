@@ -100,6 +100,24 @@ def _download_from_kaggle(raw_dir: Path) -> None:
     )
 
 
+def resolve_dataset_csv(data_dir: str | Path = "../data/engramme_test") -> Path:
+    """
+    Return the Enron CSV path under data_dir/raw.
+
+    Reuses an extracted CSV when present; downloads and extracts only when missing.
+    """
+    data_dir = Path(data_dir).resolve()
+    raw_dir = data_dir / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+
+    if list(raw_dir.rglob("*.csv")):
+        csv_path = find_dataset_csv(raw_dir)
+        print(f"Using existing dataset: {csv_path}")
+        return csv_path
+
+    return download_enron_dataset(data_dir)
+
+
 def download_enron_dataset(
     data_dir: str | Path = "../data/engramme_test",
 ) -> Path:

@@ -11,7 +11,7 @@ Run from work/REPO:
 
 Optional:
     python eval_enron.py --n 100 --seed 42
-    python eval_enron.py --n 100 --skip-download
+    python eval_enron.py --n 100
     python eval_enron.py --n 100 --resample
 
 Environment:
@@ -31,6 +31,13 @@ Important:
     Header extraction is evaluated against parsed source headers.
     Summaries and action items are NOT automatically assigned quality
     scores; those require human review or a separate validated judge.
+
+Corpus Q&A (default on):
+    10K email slice (corpus_sample_10000.jsonl), 1K synthetic count
+    questions with algorithmic ground truth (synthetic_qa_1000.jsonl),
+    dense retrieval (MiniLM) + Codex gpt-5.6-luna aggregate answers.
+    Per-email header eval is off by default; pass --email-eval to enable it.
+    Use --skip-corpus-qa to run per-email eval only.
 """
 
 from __future__ import annotations
@@ -54,7 +61,16 @@ from email.utils import getaddresses, parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 
-from tools.download_tools import download_enron_dataset, find_dataset_csv
+from tools.corpus_qa import (
+    DEFAULT_CORPUS_SAMPLE_N,
+    DEFAULT_QA_COUNT,
+    DEFAULT_QA_SEED,
+    ensure_synthetic_qa_dataset,
+)
+from tools.corpus_qa_eval import run_corpus_qa_evaluation
+from tools.codex_corpus_qa import CORPUS_QA_MODEL
+from tools.download_tools import find_dataset_csv, resolve_dataset_csv
+from tools.enron_sample import reservoir_sample
 from openai_codex import Codex
 from tools.codex_runner import MODEL, run_one
 
@@ -252,81 +268,6 @@ def download_dataset(raw_dir: Path) -> Path:
         archive.extractall(raw_dir)
 
     return find_dataset_csv(raw_dir)
-
-
-def reservoir_sample(
-    csv_path: Path,
-    n: int,
-    seed: int,
-) -> tuple[list[dict[str, str]], int]:
-    """
-    Uniform reservoir sample without loading the whole CSV into memory.
-
-    Each sampled record contains the source row ID and raw email message.
-    """
-    rng = random.Random(seed)
-    sample: list[dict[str, str]] = []
-    total = 0
-
-    print(f"Scanning CSV: {csv_path}")
-
-    with csv_path.open(
-        "r", encoding="utf-8-sig", newline="", errors="replace"
-    ) as f:
-        reader = csv.DictReader(f)
-
-        if not reader.fieldnames:
-            raise ValueError("CSV has no header row.")
-
-        fields = {
-            name.strip().casefold(): name
-            for name in reader.fieldnames
-            if name
-        }
-
-        message_col = fields.get("message")
-        if not message_col:
-            raise ValueError(
-                f"Expected a 'message' column; found {reader.fieldnames}"
-            )
-
-        id_col = fields.get("file")
-
-        for row in reader:
-            raw = row.get(message_col) or ""
-            if not raw.strip():
-                continue
-
-            record_id = (
-                row.get(id_col, "").strip()
-                if id_col else ""
-            )
-            if not record_id:
-                record_id = f"row_{total}"
-
-            item = {
-                "record_id": record_id,
-                "raw_message": raw,
-                "raw_sha256": sha256_text(raw),
-            }
-
-            total += 1
-
-            if len(sample) < n:
-                sample.append(item)
-            else:
-                j = rng.randrange(total)
-                if j < n:
-                    sample[j] = item
-
-            if total % 100_000 == 0:
-                print(f"  scanned {total:,} nonempty emails")
-
-    if total < n:
-        print(f"Warning: only {total} nonempty emails found.")
-
-    sample.sort(key=lambda x: x["record_id"])
-    return sample, total
 
 
 def save_sample(
@@ -700,7 +641,6 @@ def main() -> int:
     )
     parser.add_argument("--n", type=int, default=DEFAULT_N)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    parser.add_argument("--skip-download", action="store_true")
     parser.add_argument(
         "--resample",
         action="store_true",
@@ -726,10 +666,60 @@ def main() -> int:
         default=12000,
         help="Reserved for future prompt customization; currently fixed at 12000.",
     )
+    parser.add_argument(
+        "--email-eval",
+        action="store_true",
+        help="Run per-email header/summary evaluation (off by default).",
+    )
+    parser.add_argument(
+        "--skip-corpus-qa",
+        action="store_true",
+        help="Skip synthetic corpus Q&A (retrieval + Codex counts).",
+    )
+    parser.add_argument(
+        "--corpus-sample-n",
+        type=int,
+        default=DEFAULT_CORPUS_SAMPLE_N,
+        help="Emails in the laptop corpus slice for Q&A ground truth.",
+    )
+    parser.add_argument(
+        "--corpus-qa-n",
+        type=int,
+        default=DEFAULT_QA_COUNT,
+        help="Number of synthetic corpus questions to generate/use.",
+    )
+    parser.add_argument(
+        "--corpus-qa-seed",
+        type=int,
+        default=DEFAULT_QA_SEED,
+        help="RNG seed for synthetic question generation.",
+    )
+    parser.add_argument(
+        "--corpus-qa-model",
+        default=os.getenv("ENGRAMME_CORPUS_QA_MODEL", CORPUS_QA_MODEL),
+        help="Codex model for corpus aggregate questions (default gpt-5.6-luna).",
+    )
+    parser.add_argument(
+        "--corpus-qa-limit",
+        type=int,
+        default=None,
+        help="Optional cap on corpus Q&A items (debug/smoke tests).",
+    )
+    parser.add_argument(
+        "--corpus-retrieval-k",
+        type=int,
+        default=50,
+        help="Top-k dense retrieval for corpus Q&A evidence.",
+    )
+    parser.add_argument(
+        "--regenerate-corpus-qa",
+        action="store_true",
+        help="Rebuild corpus sample index and synthetic questions.",
+    )
     args = parser.parse_args()
 
-    if args.n < 1:
-        parser.error("--n must be positive")
+    if args.n < 1 and args.email_eval:
+        parser.error("--n must be positive when --email-eval is set")
 
     # Paths are resolved relative to the current working directory.
     data_dir = args.data_dir.resolve()
@@ -741,9 +731,20 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    # Automatically download and extract the dataset on first use.
-    # Subsequent runs reuse the extracted CSV.
-    if sample_path.exists() and not args.resample:
+    csv_path: Path | None = None
+
+    def resolve_csv_path() -> Path:
+        nonlocal csv_path
+        if csv_path is None:
+            csv_path = resolve_dataset_csv(data_dir)
+        return csv_path
+
+    email_exit_code = 0
+    corpus_exit_code = 0
+
+    if not args.email_eval:
+        sample: list[dict[str, str]] = []
+    elif sample_path.exists() and not args.resample:
         print(f"Reusing existing sample: {sample_path}")
         sample = load_sample(sample_path)
 
@@ -756,12 +757,9 @@ def main() -> int:
             return 2
 
     else:
-        if args.skip_download:
-            csv_path = find_dataset_csv(raw_dir)
-        else:
-            csv_path = download_enron_dataset(data_dir)
-
-        sample, total = reservoir_sample(csv_path, args.n, args.seed)
+        sample, total = reservoir_sample(
+            resolve_csv_path(), args.n, args.seed
+        )
 
         if not sample:
             print("ERROR: No usable emails were sampled.", file=sys.stderr)
@@ -771,12 +769,56 @@ def main() -> int:
             sample,
             sample_path,
             manifest_path,
-            csv_path,
+            resolve_csv_path(),
             total,
             args.n,
             args.seed,
         )
 
+    if not args.email_eval:
+        print("Skipping per-email evaluation (pass --email-eval to enable).")
+    else:
+        email_exit_code = _run_email_eval(args, sample, output_dir, sample_path)
+
+    if not args.skip_corpus_qa:
+        print("\n=== CORPUS Q&A SETUP ===")
+        qa_path, index_path = ensure_synthetic_qa_dataset(
+            data_dir,
+            csv_path=resolve_csv_path(),
+            corpus_sample_n=args.corpus_sample_n,
+            corpus_sample_seed=args.seed,
+            qa_count=args.corpus_qa_n,
+            seed=args.corpus_qa_seed,
+            force_regenerate=args.regenerate_corpus_qa,
+        )
+        try:
+            corpus_metrics = run_corpus_qa_evaluation(
+                index_path=index_path,
+                questions_path=qa_path,
+                output_dir=output_dir,
+                dense_cache_dir=data_dir / f"dense_cache_{args.corpus_sample_n}",
+                model=args.corpus_qa_model,
+                retrieval_k=args.corpus_retrieval_k,
+                limit=args.corpus_qa_limit,
+                rebuild_dense=args.regenerate_corpus_qa,
+            )
+            corpus_failed = corpus_metrics.get("items_failed", 0)
+            corpus_exit_code = 0 if corpus_failed == 0 else 1
+        except RuntimeError as exc:
+            print(f"ERROR: Corpus Q&A failed: {exc}", file=sys.stderr)
+            corpus_exit_code = 2
+    else:
+        print("Skipping corpus Q&A (--skip-corpus-qa).")
+
+    return email_exit_code or corpus_exit_code
+
+
+def _run_email_eval(
+    args: argparse.Namespace,
+    sample: list[dict[str, str]],
+    output_dir: Path,
+    sample_path: Path,
+) -> int:
     results_path = output_dir / "predictions.jsonl"
     metrics_path = output_dir / "metrics.json"
     review_path = output_dir / "human_review.csv"
@@ -837,6 +879,7 @@ def main() -> int:
                         "prediction": prediction,
                         "gold_headers": gold,
                         "scores": scores,
+                        "usage": codex_result.get("usage", {}),
                         "evaluated_at_utc": utc_now(),
                     }
                 else:
@@ -849,6 +892,7 @@ def main() -> int:
                         "thread_id": codex_result.get("thread_id"),
                         "error": codex_result.get("parse_error", "unknown"),
                         "gold_headers": gold,
+                        "usage": codex_result.get("usage", {}),
                         "evaluated_at_utc": utc_now(),
                     }
             except Exception as exc:

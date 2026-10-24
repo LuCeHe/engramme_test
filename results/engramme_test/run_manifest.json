@@ -1,0 +1,11 @@
+{
+  "completed_at_utc": "2026-10-24T02:07:17.067892+00:00",
+  "model": "gpt-5.6-luna",
+  "dataset": "wcukierski/enron-email-dataset",
+  "sample_path": "C:\\Users\\Luca\\work\\data\\engramme_test\\sample_5.jsonl",
+  "results_path": "C:\\Users\\Luca\\work\\engramme_test\\results\\engramme_test\\predictions.jsonl",
+  "metrics_path": "C:\\Users\\Luca\\work\\engramme_test\\results\\engramme_test\\metrics.json",
+  "human_review_path": "C:\\Users\\Luca\\work\\engramme_test\\results\\engramme_test\\human_review.csv",
+  "sample_size": 5,
+  "seed": 42
+}
