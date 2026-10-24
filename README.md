@@ -35,6 +35,8 @@ python eval_enron.py
 
 The last three methods are functional, but they were taking longer than the 3h assigned.
 
+
+
 ## Methods
 
 | Method | What it does |
@@ -45,8 +47,12 @@ The last three methods are functional, but they were taking longer than the 3h a
 | **colbert** | **ColBERT v2** late interaction (RAGatouille) over full corpus. |
 | **cascade** | **BM25 → SPLADE → dense → cross-encoder** |
 
+Run one method: benchmark with `--methods <name>`, or Codex Q&A with `--retrieval-method <name>` (`dense`, `bm25`, `bm25_splade`, `colbert`, `cascade`).
 
-
+```bat
+python -m tools.retrieval_benchmark_report --methods colbert --output-json results/engramme_test/retrieval_benchmark_colbert.json
+python eval_enron.py --retrieval-method cascade --corpus-qa-limit 10
+```
 
 ## AI traces
 
